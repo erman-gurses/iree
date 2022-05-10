@@ -242,9 +242,9 @@ IREE_API_EXPORT void iree_hal_buffer_retain(iree_hal_buffer_t* buffer) {
 }
 
 IREE_API_EXPORT void iree_hal_buffer_release(iree_hal_buffer_t* buffer) {
-  if (IREE_LIKELY(buffer) && 
-  iree_atomic_ref_count_dec(&((iree_hal_resource_t*)(buffer))->ref_count) ==
-      1) {
+  if (IREE_LIKELY(buffer) &&
+      iree_atomic_ref_count_dec(&((iree_hal_resource_t*)(buffer))->ref_count) ==
+          1) {
     iree_hal_buffer_recycle(buffer);
   }
 }

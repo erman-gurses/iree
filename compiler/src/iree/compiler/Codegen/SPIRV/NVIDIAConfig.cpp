@@ -84,8 +84,8 @@ static LogicalResult setOpConfig(const spirv::TargetEnv &targetEnv,
       getElementType(init), lhsShape[0], rhsShape[1], lhsShape[1]);
   if (!coopMatSize) return success();
 
-  auto pipeline = IREE::Codegen::DispatchLoweringPassPipeline::
-      SPIRVCooperativeMatrixVectorize;
+  //auto pipeline = IREE::Codegen::DispatchLoweringPassPipeline::
+  //    SPIRVCooperativeMatrixVectorize;
 
   // For now only support one subgroup per workgroup because in the above
   // configuration deduction step we only consider whether the input workload is
@@ -105,9 +105,15 @@ static LogicalResult setOpConfig(const spirv::TargetEnv &targetEnv,
   tileSizes.push_back({coopMatSize->m, coopMatSize->n, coopMatSize->k});
   tileSizes.push_back({coopMatSize->m, coopMatSize->n, coopMatSize->k});
 
-  return setOpConfigAndEntryPointFnTranslation(
-      op->getParentOfType<func::FuncOp>(), op, tileSizes, pipeline,
-      workgroupSize);
+  const std::array<int64_t, 2> workgroupXY = {subgroupSize, 8};
+  std::array<int64_t, 3> threadMNK;
+  threadMNK = {16, 16, 16};
+
+  return setMatmulOpConfigOriginal(resourceLimits, op, workgroupXY, threadMNK, workgroupSize, tileSizes, /*enablePromotion=*/true);
+
+  //return setOpConfigAndEntryPointFnTranslation(
+  //    op->getParentOfType<func::FuncOp>(), op, tileSizes, pipeline,
+  //    workgroupSize);
 }
 
 static LogicalResult setNVIDIAMatmulConfig(linalg::LinalgOp op,

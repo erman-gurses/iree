@@ -579,6 +579,135 @@ LogicalResult setMatmulOpConfig(spirv::ResourceLimitsAttr limits,
       workgroupSize);
 }
 
+LogicalResult setMatmulOpConfigOriginal(spirv::ResourceLimitsAttr limits,
+                                        linalg::LinalgOp op,
+                                        std::array<int64_t, 2> bestWorkgroupSizeXY,
+                                        std::array<int64_t, 3> bestThreadTileSizeMNK,
+                                        std::array<int64_t, 3> workgroupSizeOriginal,
+                                        SmallVector<SmallVector<int64_t>> tileSizesOriginal,
+                                        bool enablePromotion) {
+  LLVM_DEBUG(llvm::dbgs() << "trying to deduce config as matmul...\n");
+  OpOperand *lhs = op.getInputOperand(0);
+  OpOperand *rhs = op.getInputOperand(1);
+
+  auto lhsType = lhs->get().getType().cast<ShapedType>();
+  auto rhsType = rhs->get().getType().cast<ShapedType>();
+  auto elementBits = lhsType.getElementType().getIntOrFloatBitWidth();
+  if (elementBits != 16 && elementBits != 32) return success();
+
+  ArrayRef<int64_t> lhsShape = lhsType.getShape();
+  ArrayRef<int64_t> rhsShape = rhsType.getShape();
+  if (llvm::any_of(lhsShape, ShapedType::isDynamic)) return success();
+  if (llvm::any_of(rhsShape, ShapedType::isDynamic)) return success();
+
+  assert(llvm::is_contained({2u, 3u}, op.getNumParallelLoops()));
+
+  int lastParallelDim = -1;
+  const auto [bIndex, mIndex, nIndex, kIndex] =
+      getMatmulBMNKIndex(op, lastParallelDim);
+  if (mIndex < 0 || nIndex < 0 || kIndex < 0) return success();
+  const bool isBM = bIndex >= 0;
+
+  SmallVector<int64_t, 4> loopRanges = op.getStaticLoopRanges();
+  const unsigned numLoops = loopRanges.size();
+
+  const int64_t dimM = loopRanges[mIndex];
+  const int64_t dimK = loopRanges[kIndex];
+  const int64_t dimN = loopRanges[nIndex];
+
+  // The core idea is to distribute the matmul M/N dimension to the workgroup
+  // Y/X dimension, with each thread in a workgroup handling multiple vector
+  // elements. We start from the best (X, Y) and the tiling sizes for (M, N, K)
+  // and try different configurations by scaling them down until we find a
+  // configuration that can perfectly tile the input matmul.
+
+  const int64_t bestThreadM = bestThreadTileSizeMNK[0],
+                bestThreadN = bestThreadTileSizeMNK[1],
+                bestThreadK = bestThreadTileSizeMNK[2];
+
+  int64_t bestX = bestWorkgroupSizeXY[0], bestY = bestWorkgroupSizeXY[1];
+  // We will deduce a configuration first for x and then y. But look at y here
+  // to see if the problem size is too small; for such cases, "shift" the
+  // parallelism to x.
+  if (dimM < bestThreadM) {
+    int64_t factor = llvm::PowerOf2Ceil(llvm::divideCeil(bestThreadM, dimM));
+    bestX *= factor;
+    bestY = llvm::divideCeil(bestY, factor);
+  }
+
+  LLVM_DEBUG({
+    llvm::dbgs() << "best thread tile size (M, N, K) = (" << bestThreadM << ", "
+                 << bestThreadN << ", " << bestThreadK << ")\n";
+    llvm::dbgs() << "best workgroup size (X, Y) = (" << bestX << ", " << bestY
+                 << ")\n";
+  });
+
+  int64_t residualThreads = bestX * bestY;
+  int64_t residualTilingFactor = (bestThreadM + bestThreadK) * bestThreadN;
+
+  SmallVector<int64_t, 3> workgroupSize(3, 1);  // (X, Y, Z)
+  SmallVector<int64_t> workgroupTileSizes(numLoops, 0);
+  SmallVector<int64_t> reductionTileSizes(numLoops, 0);
+
+  if (isBM) workgroupTileSizes[bIndex] = 1;
+
+  if (!tileMatmulNToWorkgroupX(dimN, bestThreadN, residualThreads, bestX,
+                               residualTilingFactor, workgroupSize[0],
+                               workgroupTileSizes[nIndex]) ||
+      !tileMatmulMToWorkgroupY(dimM, bestThreadM, residualThreads, bestY,
+                               residualTilingFactor, workgroupSize[1],
+                               workgroupTileSizes[mIndex]) ||
+      !tileMatmulK(dimK, residualTilingFactor, reductionTileSizes[kIndex])) {
+    //return success();
+  }
+  LLVM_DEBUG({
+    llvm::dbgs() << "workgroup tile size before promotion = (";
+    llvm::interleaveComma(workgroupTileSizes, llvm::dbgs());
+    llvm::dbgs() << ")\n";
+    llvm::dbgs() << "reduction tile size before promotion = (";
+    llvm::interleaveComma(reductionTileSizes, llvm::dbgs());
+    llvm::dbgs() << ")\n";
+    llvm::dbgs() << "workgroup size before promotion = (";
+    llvm::interleaveComma(workgroupSize, llvm::dbgs());
+    llvm::dbgs() << ")\n";
+  });
+
+  //const int subgroupSize = limits.getSubgroupSize();
+  //const int maxBytes = limits.getMaxComputeSharedMemorySize();
+
+  /*
+  auto pipeline =
+      enablePromotion &&
+              adjustToPromote({dimM, dimN, dimK}, workgroupTileSizes[mIndex],
+                              workgroupTileSizes[nIndex],
+                              reductionTileSizes[kIndex], workgroupSize,
+                              subgroupSize, maxBytes, elementBits)
+          ? CodeGenPipeline::SPIRVMatmulPromoteVectorize
+          : CodeGenPipeline::SPIRVBaseVectorize;
+  */
+  auto pipeline =  IREE::Codegen::DispatchLoweringPassPipeline::
+  SPIRVCooperativeMatrixVectorize;
+
+
+  SmallVector<int64_t> threadTileSizes(numLoops, 0);
+  if (isBM) {
+    threadTileSizes[bIndex] = workgroupTileSizes[bIndex] / workgroupSize[2];
+  }
+  threadTileSizes[mIndex] = workgroupTileSizes[mIndex] / workgroupSize[1];
+  threadTileSizes[nIndex] = workgroupTileSizes[nIndex] / workgroupSize[0];
+
+  TileSizesListType tileSizes;
+  workgroupTileSizes.resize(lastParallelDim + 1);
+  threadTileSizes.resize(lastParallelDim + 1);
+  tileSizes.push_back(workgroupTileSizes);
+  tileSizes.push_back(threadTileSizes);
+  tileSizes.push_back(reductionTileSizes);
+
+  return setOpConfigAndEntryPointFnTranslation(
+      op->getParentOfType<func::FuncOp>(), op, tileSizesOriginal, pipeline,
+      workgroupSizeOriginal);
+}
+
 }  // namespace detail
 
 //===----------------------------------------------------------------------===//

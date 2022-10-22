@@ -35,11 +35,20 @@ LogicalResult setConvOpConfig(linalg::LinalgOp linalgOp,
 
 /// Sets CodeGen configurations via attributes to the given matmul `linalgOp`
 /// with the given best workgroup size and tile size hints.
+
 LogicalResult setMatmulOpConfig(spirv::ResourceLimitsAttr limits,
                                 linalg::LinalgOp linalgOp,
                                 std::array<int64_t, 2> bestWorkgroupSizeXY,
                                 std::array<int64_t, 3> bestThreadTileSizeMNK,
                                 bool enablePromotion = false);
+
+LogicalResult setMatmulOpConfigOriginal(spirv::ResourceLimitsAttr limits,
+                                        linalg::LinalgOp linalgOp,
+                                        std::array<int64_t, 2> bestWorkgroupSizeXY,
+                                        std::array<int64_t, 3> bestThreadTileSizeMNK,
+                                        std::array<int64_t, 3> workgroupSizeOriginal,
+                                        SmallVector<SmallVector<int64_t>> tileSizesOriginal,
+                                        bool enablePromotion = false);
 
 /// Sets CodeGen configuration for GPUs from a specific vendor.
 ///

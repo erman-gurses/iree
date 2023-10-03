@@ -61,6 +61,7 @@ iree_cc_library(
     "VectorReductionToGPU.cpp"
     "WorkGroupSwizzle.cpp"
     "WorkgroupSpecializationPass.cpp"
+    "OptimizeSharedMemoryReadsAndWrites.cpp"
   DEPS
     ::PassHeaders
     ::PassesIncGen

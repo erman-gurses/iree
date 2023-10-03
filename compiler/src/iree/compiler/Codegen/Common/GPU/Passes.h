@@ -142,6 +142,10 @@ createWorkGroupSwizzle(unsigned swizzleLogTile = 0);
 /// Register Common GPU passes.
 void registerCodegenCommonGPUPasses();
 
+std::unique_ptr<OperationPass<func::FuncOp>>
+createOptimizeSharedMemoryReadsAndWritesPass();
+void testSharedMemoryReadsAndWrites(Operation *op);
+
 } // namespace iree_compiler
 } // namespace mlir
 

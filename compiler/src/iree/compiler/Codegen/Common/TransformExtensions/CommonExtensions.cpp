@@ -1084,5 +1084,24 @@ void transform_dialect::GpuReduceBankConflictsOp::getEffects(
   transform::modifiesPayload(effects);
 }
 
+//===----------------------------------------------------------------------===//
+// OptimizeSharedMemoryReadsAndWritesOp
+//===----------------------------------------------------------------------===//
+
+DiagnosedSilenceableFailure
+transform_dialect::OptimizeSharedMemoryReadsAndWritesOp::applyToOne(
+    transform::TransformRewriter &rewriter, ::mlir::Operation *op, 
+    ::mlir::transform::ApplyToEachResultList &results,
+    ::mlir::transform::TransformState &state) {
+  testSharedMemoryReadsAndWrites(op);
+  return DiagnosedSilenceableFailure::success();
+}
+
+void transform_dialect::OptimizeSharedMemoryReadsAndWritesOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  transform::onlyReadsHandle(getTarget(), effects);
+  transform::modifiesPayload(effects);
+}
+
 #define GET_OP_CLASSES
 #include "iree/compiler/Codegen/Common/TransformExtensions/CommonExtensionsOps.cpp.inc"

@@ -120,4 +120,10 @@ def WorkGroupSwizzle :
   ];
 }
 
+def OptimizeSharedMemoryReadsAndWritesPass :
+    Pass<"iree-OptimizeSharedMemoryReadsAndWrites", "func::FuncOp"> {
+  let summary = "To do";
+  let constructor = "mlir::iree_compiler::createOptimizeSharedMemoryReadsAndWritesPass()";
+}   
+
 #endif // IREE_CODEGEN_COMMON_GPU_PASSES

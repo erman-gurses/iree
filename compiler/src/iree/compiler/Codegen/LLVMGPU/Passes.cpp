@@ -192,6 +192,7 @@ void addGPUMatmulSimtPassPipeline(OpPassManager &pm) {
 
   nestedModulePM.addNestedPass<func::FuncOp>(
       memref::createFoldMemRefAliasOpsPass());
+  nestedModulePM.addNestedPass<func::FuncOp>(createOptimizeSharedMemoryReadsAndWritesPass());  
   nestedModulePM.addPass(createCSEPass());
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());

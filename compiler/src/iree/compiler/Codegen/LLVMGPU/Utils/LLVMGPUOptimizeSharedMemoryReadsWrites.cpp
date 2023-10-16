@@ -20,7 +20,7 @@ namespace mlir::iree_compiler {
 constexpr int64_t kSharedMemoryLineSizeBytes = 128;
 /// We optimize for 64bit accesses, but this can be made an argument in the
 /// future.
-constexpr int64_t kDefaultVectorSizeBits = 128;
+constexpr int64_t kDefaultVectorSizeBits = 64;
 
 static Operation::operand_range getIndices(Operation *op) {
   if (auto loadOp = dyn_cast<memref::LoadOp>(op))
@@ -195,7 +195,7 @@ optimizeSharedMemoryReadsAndWrites(Operation *parentOp, Value memrefValue) {
       (8 * kSharedMemoryLineSizeBytes / memRefType.getElementTypeBitWidth()) /
       rowSize;
   const int64_t threadGroupSize =
-      1LL << (7 - llvm::Log2_64(kDefaultVectorSizeBits / 8));
+      1LL << (7 - llvm::Log2_64(kDefaultVectorSizeBits / 4));
   if (rowsPerLine >= threadGroupSize)
     return failure();
 

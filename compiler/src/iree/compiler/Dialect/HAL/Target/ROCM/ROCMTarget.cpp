@@ -29,6 +29,7 @@
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 
 static llvm::cl::opt<std::string>
     clROCMTargetChip("iree-rocm-target-chip",
@@ -83,6 +84,7 @@ public:
   void getDependentDialects(DialectRegistry &registry) const override {
     mlir::registerBuiltinDialectTranslation(registry);
     mlir::registerLLVMDialectTranslation(registry);
+    registry.insert<amdgpu::AMDGPUDialect>();
     mlir::registerROCDLDialectTranslation(registry);
     registry.insert<IREE::Codegen::IREECodegenDialect>();
   }
@@ -320,6 +322,7 @@ void registerROCMTargetBackends() {
         LLVMInitializeAMDGPUTarget();
         LLVMInitializeAMDGPUTargetMC();
         LLVMInitializeAMDGPUTargetInfo();
+        LLVMInitializeAMDGPUAsmParser();
         LLVMInitializeAMDGPUAsmPrinter();
         return std::make_shared<ROCMTargetBackend>();
       });

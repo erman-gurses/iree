@@ -16,14 +16,18 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -36,6 +40,23 @@ namespace iree_compiler {
 
 namespace {
 
+// Transform gpu.barrier -> amdgpu.lds_barrier
+struct RewriteBarriers  : public OpRewritePattern<gpu::BarrierOp> {
+  using OpRewritePattern<gpu::BarrierOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(gpu::BarrierOp op,
+                                PatternRewriter &rewriter) const override {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(op);
+    rewriter.replaceOpWithNewOp<amdgpu::LDSBarrierOp>(op);
+    return success();
+  }
+};
+
+void populatePrepareVectorToAMDMMAPatterns(RewritePatternSet &patterns) {
+  patterns.add<RewriteBarriers>(patterns.getContext());
+}
+
 /// A pass that replaces all occurrences of GPU device operations with their
 /// corresponding ROCDL equivalent.
 ///
@@ -43,7 +64,8 @@ namespace {
 /// code.
 struct ConvertToROCDLPass : public ConvertToROCDLBase<ConvertToROCDLPass> {
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<LLVM::LLVMDialect, ROCDL::ROCDLDialect>();
+    registry.insert<LLVM::LLVMDialect, ROCDL::ROCDLDialect,
+                    amdgpu::AMDGPUDialect, gpu::GPUDialect>();
   }
   void runOnOperation() override {
     ModuleOp m = getOperation();
@@ -65,12 +87,14 @@ struct ConvertToROCDLPass : public ConvertToROCDLBase<ConvertToROCDLPass> {
           llvm_unreachable("unknown address space enum value");
           return 0;
         });
+
     // Apply in-dialect lowering first. In-dialect lowering will replace ops
     // which need to be lowered further, which is not supported by a single
     // conversion pass.
     // Run Vector -> Vector transformations ahead of conversion to LLVM.
     {
       RewritePatternSet patterns(&getContext());
+      populatePrepareVectorToAMDMMAPatterns(patterns);
       populateDropSharedMemoryDeallocOpPatterns(patterns);
       populateScalarizeMathOps(patterns);
       populateConvertSharedMemoryAllocOps(patterns);
@@ -120,6 +144,8 @@ struct ConvertToROCDLPass : public ConvertToROCDLBase<ConvertToROCDLPass> {
       populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
       cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
       arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
+      FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse("gfx90a");
+      populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns, *maybeChipset); 
       populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
       populateGpuToROCDLConversionPatterns(converter, llvmPatterns,
                                            gpu::amd::Runtime::Unknown);

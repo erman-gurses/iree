@@ -48,7 +48,7 @@ verifyLoweringConfiguration(FunctionOpInterface funcOp,
     auto codegenLoweringConfig =
         getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(op);
     auto gpuLoweringConfig =
-        getLoweringConfig<IREE::GPU::LoweringConfigAttr>(op);
+        dyn_cast_or_null<IREE::GPU::LoweringConfigAttr>(getLoweringConfig(op));
     if (!codegenLoweringConfig && !gpuLoweringConfig)
       return WalkResult::advance();
     return verificationFn(op, codegenLoweringConfig, translationInfo,
